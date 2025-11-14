@@ -240,12 +240,15 @@ class FSDPTrainRayActor(TrainRayActor):
             This method temporarily switches model weights when `model_tag != "actor"`
             and restores the original weights and train mode afterwards.
         """
-        need_restore = False
-        if model_tag != "actor" and model_tag in self.weights:
-            self.update_cpu_params_dict(self.weights["actor"])
+        # Load model weights and set eval mode for log prob computation
+        # For non-actor models (e.g., ref), we need to load weights and restore after
+        # For actor model, we assume GPU already has correct weights after wake_up()
+        need_restore = model_tag != "actor" and model_tag in self.weights
+        
+        if need_restore:
+            # Load non-actor weights (e.g., ref model)
             self.update_gpu_params_dict(self.weights[model_tag])
             self.model.eval()
-            need_restore = True
 
         try:
             rollout_data = {f"{store_prefix}log_probs": []}
@@ -278,9 +281,11 @@ class FSDPTrainRayActor(TrainRayActor):
 
         finally:
             if need_restore:
+                # Restore actor weights after computing ref/other model log probs
                 self.update_gpu_params_dict(self.weights["actor"])
-                self.model.train()
-                torch.cuda.synchronize()
+            # Always restore train mode (even for actor, since we set eval mode above)
+            self.model.train()
+            torch.cuda.synchronize()
 
     def packed_data(
         self, rollout_data: dict[str, list[torch.Tensor]]

@@ -30,7 +30,13 @@ set -ex
 
 # will prevent ray from buffering stdout/stderr
 export PYTHONBUFFERED=16
-export CUDA_VISIBLE_DEVICES=2,3
+export CUDA_VISIBLE_DEVICES=6,7
+
+CKPT_ARGS=(
+   --hf-checkpoint /root/Qwen3-0.6B
+   --ref-load /root/Qwen3-0.6B
+)
+
 ROLLOUT_ARGS=(
    --prompt-data /root/dapo-math-17k/dapo-math-17k.jsonl
    --input-key prompt
@@ -39,12 +45,12 @@ ROLLOUT_ARGS=(
    --rollout-shuffle
    --rm-type deepscaler
    --num-rollout 1000
-   --rollout-batch-size 4
-   --n-samples-per-prompt 4
+   --rollout-batch-size 8
+   --n-samples-per-prompt 8
    --rollout-max-response-len 4096
    --rollout-temperature 0.8
 
-   --global-batch-size 16
+   --global-batch-size 64
 )
 
 GRPO_ARGS=(
