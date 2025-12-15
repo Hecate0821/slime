@@ -1085,6 +1085,25 @@ def get_slime_extra_args_provider(add_custom_arguments=None):
                     "Path to the custom function that will post process reward, by default it will be the normalization for grpo. "
                 ),
             )
+            
+            # Vision cache arguments for VLM training
+            parser.add_argument(
+                "--enable-vision-cache",
+                action="store_true",
+                default=False,
+                help=(
+                    "Enable vision feature caching to avoid redundant image preprocessing. "
+                    "Recommended for VLM GRPO training where the same image is processed multiple times "
+                    "with n_samples_per_prompt > 1."
+                ),
+            )
+            parser.add_argument(
+                "--vision-cache-size",
+                type=int,
+                default=2000,
+                help="Maximum number of vision features to cache in memory (LRU eviction).",
+            )
+            
             return parser
 
         def add_rollout_buffer_arguments(parser):

@@ -26,6 +26,7 @@ from slime.utils.processing_utils import (
     prepare_model_inputs,
 )
 from slime.utils.types import Sample
+from slime.utils.vision_cache import get_vision_cache
 
 from .rm_hub import async_rm, batched_async_rm
 
@@ -63,6 +64,11 @@ class GenerateState(metaclass=SingletonMeta):
         if getattr(args, "sglang_enable_deterministic_inference", False):
             sampling_seed_base = args.rollout_seed
             self.group_sampling_seeds = [sampling_seed_base + i for i in range(args.n_samples_per_prompt)]
+
+        # Initialize vision cache if enabled
+        if getattr(args, 'enable_vision_cache', False):
+            vision_cache = get_vision_cache(max_size=getattr(args, 'vision_cache_size', 2000))
+            logger.info(f"Vision cache enabled: max_size={args.vision_cache_size}")
 
         self.reset()
 
@@ -102,6 +108,7 @@ async def generate(args: Namespace, sample: Sample, sampling_params: dict[str, A
         state.processor,
         sample.metadata,
         args.apply_chat_template_kwargs,
+        use_vision_cache=getattr(args, 'enable_vision_cache', False),
     )
 
     image_data = extra_info.get("images", [])
@@ -396,6 +403,11 @@ async def generate_rollout_async(
     assert len(data) == args.rollout_batch_size, f"Got {len(data)} samples, expected {args.rollout_batch_size}"
     data = sorted(data, key=lambda group: group[0][0].index if isinstance(group[0], list) else group[0].index)
     all_samples = sorted(data, key=lambda group: group[0][0].index if isinstance(group[0], list) else group[0].index)
+
+    # Log vision cache statistics if enabled
+    if getattr(args, 'enable_vision_cache', False):
+        vision_cache = get_vision_cache()
+        vision_cache.log_stats()
 
     # reset the global state to prevent effects on the next rollout or eval.
     state.reset()

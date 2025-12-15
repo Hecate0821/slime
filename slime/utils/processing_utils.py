@@ -4,6 +4,8 @@ import logging
 
 from transformers import AutoProcessor, AutoTokenizer, PreTrainedTokenizerBase, ProcessorMixin
 
+from .vision_cache import get_vision_cache, image_list_to_hash
+
 logger = logging.getLogger(__name__)
 
 
@@ -25,8 +27,23 @@ def load_processor(name_or_path: str, **kwargs):
     return proc
 
 
-def prepare_model_inputs(prompt, tokenizer, processor=None, metadata=None, apply_chat_template_kwargs=None):
+def prepare_model_inputs(
+    prompt,
+    tokenizer,
+    processor=None,
+    metadata=None,
+    apply_chat_template_kwargs=None,
+    use_vision_cache: bool = False,
+):
     """Prepare all inputs for model inference.
+
+    Args:
+        prompt: The prompt (may contain image references)
+        tokenizer: The tokenizer
+        processor: Optional processor for multimodal inputs
+        metadata: Optional metadata dict
+        apply_chat_template_kwargs: Optional kwargs for chat template
+        use_vision_cache: If True, use vision feature cache to avoid redundant preprocessing
 
     Returns:
         tuple: (input_ids, extra_info)
@@ -51,12 +68,42 @@ def prepare_model_inputs(prompt, tokenizer, processor=None, metadata=None, apply
 
         images, videos = process_vision_info(prompt)
 
-        # Get input IDs with full prompt (text + multimodal)
-        processor_output = processor(text=text_prompt, images=images, videos=videos)
+        # Try to get cached vision features if enabled
+        multimodal_inputs = None
+        image_hash = None
+        
+        if use_vision_cache and images:
+            # Compute hash for cache lookup
+            image_hash = image_list_to_hash(images)
+            
+            # Try to get from cache
+            vision_cache = get_vision_cache()
+            cached_features = vision_cache.get(images, image_hash=image_hash)
+            
+            if cached_features is not None:
+                # Cache hit - use cached multimodal_inputs
+                multimodal_inputs = cached_features
+                logger.debug(f"Using cached vision features for image hash: {image_hash[:16]}...")
+        
+        # If not cached or cache disabled, process images
+        if multimodal_inputs is None:
+            # Get input IDs with full prompt (text + multimodal)
+            processor_output = processor(text=text_prompt, images=images, videos=videos)
+            
+            # Extract multimodal tokens (exclude text-related tokens)
+            multimodal_inputs = {k: v for k, v in processor_output.items() if k not in ["input_ids", "attention_mask"]}
+            
+            # Cache the processed features if enabled
+            if use_vision_cache and images:
+                vision_cache = get_vision_cache()
+                vision_cache.put(images, multimodal_inputs, image_hash=image_hash)
+                logger.debug(f"Cached vision features for image hash: {image_hash[:16]}...")
+        else:
+            # For cached features, we still need to get input_ids from processor
+            # (text processing is cheap compared to vision processing)
+            processor_output = processor(text=text_prompt, images=images, videos=videos)
+        
         input_ids = processor_output["input_ids"][0]
-
-        # Extract multimodal tokens (exclude text-related tokens)
-        multimodal_inputs = {k: v for k, v in processor_output.items() if k not in ["input_ids", "attention_mask"]}
 
         extra_info = {
             "images": images,
